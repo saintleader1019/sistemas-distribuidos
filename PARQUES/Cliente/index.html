@@ -1,0 +1,66 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <title>Cliente Parqués</title>
+</head>
+<body>
+  <h1>Cliente WebSocket - Parqués</h1>
+  <input type="text" id="nombre" placeholder="Nombre del jugador">
+  <button onclick="conectar()">Conectar</button>
+  <hr>
+  <button onclick="lanzarDados()">🎲 Lanzar Dados</button>
+  <br><br>
+  <input type="number" id="indiceFicha" placeholder="Ficha (0-3)">
+  <input type="number" id="cantidad" placeholder="Casillas a mover">
+  <button onclick="moverFicha()">Mover Ficha</button>
+  <br><br>
+  <button onclick="sacarFicha()">Sacar Ficha de la Cárcel</button>
+  <hr>
+  <pre id="salida"></pre>
+
+  <script>
+    let ws;
+
+    function conectar() {
+      const nombre = document.getElementById("nombre").value;
+      ws = new WebSocket("ws://localhost:8765");
+
+      ws.onopen = () => {
+        log("Conectado al servidor");
+      };
+
+      ws.onmessage = (msg) => {
+        const data = JSON.parse(msg.data);
+        log("Servidor: " + JSON.stringify(data, null, 2));
+
+        if (data.tipo === "solicitar_nombre") {
+          ws.send(JSON.stringify({ nombre }));
+        }
+      };
+
+      ws.onclose = () => log("Conexión cerrada");
+      ws.onerror = (e) => log("Error: " + e.message);
+    }
+
+    function lanzarDados() {
+      ws.send(JSON.stringify({ tipo: "lanzar_dados" }));
+    }
+
+    function moverFicha() {
+      const indice = parseInt(document.getElementById("indiceFicha").value);
+      const cantidad = parseInt(document.getElementById("cantidad").value);
+      ws.send(JSON.stringify({ tipo: "mover_ficha", indice_ficha: indice, cantidad }));
+    }
+
+    function sacarFicha() {
+      const indice = parseInt(document.getElementById("indiceFicha").value);
+      ws.send(JSON.stringify({ tipo: "sacar_ficha", indice_ficha: indice }));
+    }
+
+    function log(msg) {
+      document.getElementById("salida").textContent += msg + "\\n";
+    }
+  </script>
+</body>
+</html>

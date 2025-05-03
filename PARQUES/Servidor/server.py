@@ -178,6 +178,9 @@ async def iniciar_partida():
 
 start_server = websockets.serve(manejar_jugador, "localhost", 8765)
 
-print("Servidor iniciado en ws://localhost:8765")
-asyncio.get_event_loop().run_until_complete(start_server)
-asyncio.get_event_loop().run_forever()
+async def main():
+    print("Servidor iniciado en ws://localhost:8765")
+    async with websockets.serve(manejar_jugador, "localhost", 8765):
+        await asyncio.Future()  # mantener corriendo
+
+asyncio.run(main())
