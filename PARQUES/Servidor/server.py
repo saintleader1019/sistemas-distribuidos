@@ -97,6 +97,10 @@ async def manejar_mensaje(jugador: ConexionJugador, datos: Dict):
             await siguiente.websocket.send_json({"tipo": "tu_turno"})
 
     elif datos["tipo"] == "sacar_ficha":
+        if jugadores[turno_actual] != jugador:
+            await jugador.websocket.send_json({ "tipo": "error", "mensaje": "No es tu turno" })
+            return
+
         idx = datos.get("indice_ficha")
         if idx is not None and 0 <= idx < 4:
             ficha = jugador.fichas[idx]
@@ -106,6 +110,10 @@ async def manejar_mensaje(jugador: ConexionJugador, datos: Dict):
                 await jugador.websocket.send_json({"tipo": "ficha_sacada", "indice": idx, "posicion": ficha["posicion"]})
 
     elif datos["tipo"] == "mover_ficha":
+        if jugadores[turno_actual] != jugador:
+            await jugador.websocket.send_json({ "tipo": "error", "mensaje": "No es tu turno" })
+            return
+        
         idx = datos.get("indice_ficha")
         cantidad = datos.get("cantidad")
         if idx is not None and cantidad is not None:

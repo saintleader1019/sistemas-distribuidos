@@ -1,65 +1,72 @@
 <!DOCTYPE html>
-<html>
+<html lang="es">
 <head>
   <meta charset="UTF-8">
   <title>Cliente Parqués</title>
+  <style>
+    body { font-family: sans-serif; padding: 1rem; }
+    input, button { margin: 0.25rem; }
+    pre { background: #f4f4f4; padding: 0.5rem; height: 200px; overflow: auto; }
+  </style>
 </head>
 <body>
   <h1>Cliente WebSocket - Parqués</h1>
-  <input type="text" id="nombre" placeholder="Nombre del jugador">
+
+  <input type="text" id="nombre" placeholder="Tu nombre">
   <button onclick="conectar()">Conectar</button>
+  <br>
   <hr>
   <button onclick="lanzarDados()">🎲 Lanzar Dados</button>
-  <br><br>
-  <input type="number" id="indiceFicha" placeholder="Ficha (0-3)">
+  <br>
+  <input type="number" id="indiceFicha" placeholder="Ficha # (0-3)">
   <input type="number" id="cantidad" placeholder="Casillas a mover">
   <button onclick="moverFicha()">Mover Ficha</button>
-  <br><br>
-  <button onclick="sacarFicha()">Sacar Ficha de la Cárcel</button>
+  <br>
+  <button onclick="sacarFicha()">Sacar Ficha</button>
   <hr>
   <pre id="salida"></pre>
 
   <script>
-    let ws;
+    let socket;
 
     function conectar() {
       const nombre = document.getElementById("nombre").value;
-      ws = new WebSocket("ws://localhost:8765");
+      socket = new WebSocket("ws://localhost:8000/ws");
 
-      ws.onopen = () => {
-        log("Conectado al servidor");
-      };
+      socket.onopen = () => log("Conectado al servidor");
 
-      ws.onmessage = (msg) => {
-        const data = JSON.parse(msg.data);
-        log("Servidor: " + JSON.stringify(data, null, 2));
+      socket.onmessage = (event) => {
+        const data = JSON.parse(event.data);
+        log("Servidor: " + JSON.stringify(data));
 
         if (data.tipo === "solicitar_nombre") {
-          ws.send(JSON.stringify({ nombre }));
+          socket.send(JSON.stringify({ nombre }));
         }
       };
 
-      ws.onclose = () => log("Conexión cerrada");
-      ws.onerror = (e) => log("Error: " + e.message);
+      socket.onclose = () => log("Conexión cerrada");
+      socket.onerror = (err) => log("Error: " + err.message);
     }
 
     function lanzarDados() {
-      ws.send(JSON.stringify({ tipo: "lanzar_dados" }));
+      socket.send(JSON.stringify({ tipo: "lanzar_dados" }));
     }
 
     function moverFicha() {
-      const indice = parseInt(document.getElementById("indiceFicha").value);
+      const idx = parseInt(document.getElementById("indiceFicha").value);
       const cantidad = parseInt(document.getElementById("cantidad").value);
-      ws.send(JSON.stringify({ tipo: "mover_ficha", indice_ficha: indice, cantidad }));
+      socket.send(JSON.stringify({ tipo: "mover_ficha", indice_ficha: idx, cantidad }));
     }
 
     function sacarFicha() {
-      const indice = parseInt(document.getElementById("indiceFicha").value);
-      ws.send(JSON.stringify({ tipo: "sacar_ficha", indice_ficha: indice }));
+      const idx = parseInt(document.getElementById("indiceFicha").value);
+      socket.send(JSON.stringify({ tipo: "sacar_ficha", indice_ficha: idx }));
     }
 
     function log(msg) {
-      document.getElementById("salida").textContent += msg + "\\n";
+      const out = document.getElementById("salida");
+      out.textContent += msg + "\n";
+      out.scrollTop = out.scrollHeight;
     }
   </script>
 </body>
