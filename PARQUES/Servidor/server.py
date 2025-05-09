@@ -5,12 +5,13 @@ import random
 app = FastAPI()
 
 class ConexionJugador:
-    def __init__(self, websocket: WebSocket, nombre: str, color: str):
+    def __init__(self, websocket: WebSocket, nombre: str, color: str, es_bot: bool = False):
         self.websocket = websocket
         self.nombre = nombre
         self.color = color
         self.fichas = [{"posicion": -1, "activa": False} for _ in range(4)]
         self.pares_consecutivos = 0
+        self.es_bot = es_bot
 
 jugadores: List[ConexionJugador] = []
 colores_disponibles = ["rojo", "azul", "verde", "amarillo"]
@@ -75,11 +76,11 @@ async def iniciar_partida():
 async def manejar_mensaje(jugador: ConexionJugador, datos: Dict):
     global turno_actual
 
-    if datos["tipo"] == "lanzar_dados":
-        if jugadores[turno_actual] != jugador:
-            await jugador.websocket.send_json({"tipo": "error", "mensaje": "No es tu turno"})
-            return
+    if jugadores[turno_actual] != jugador:
+        await jugador.websocket.send_json({"tipo": "error", "mensaje": "No es tu turno"})
+        return
 
+    if datos["tipo"] == "lanzar_dados":
         d1, d2 = random.randint(1,6), random.randint(1,6)
         par = d1 == d2
 
@@ -97,10 +98,6 @@ async def manejar_mensaje(jugador: ConexionJugador, datos: Dict):
             await siguiente.websocket.send_json({"tipo": "tu_turno"})
 
     elif datos["tipo"] == "sacar_ficha":
-        if jugadores[turno_actual] != jugador:
-            await jugador.websocket.send_json({ "tipo": "error", "mensaje": "No es tu turno" })
-            return
-
         idx = datos.get("indice_ficha")
         if idx is not None and 0 <= idx < 4:
             ficha = jugador.fichas[idx]
@@ -110,10 +107,6 @@ async def manejar_mensaje(jugador: ConexionJugador, datos: Dict):
                 await jugador.websocket.send_json({"tipo": "ficha_sacada", "indice": idx, "posicion": ficha["posicion"]})
 
     elif datos["tipo"] == "mover_ficha":
-        if jugadores[turno_actual] != jugador:
-            await jugador.websocket.send_json({ "tipo": "error", "mensaje": "No es tu turno" })
-            return
-        
         idx = datos.get("indice_ficha")
         cantidad = datos.get("cantidad")
         if idx is not None and cantidad is not None:
