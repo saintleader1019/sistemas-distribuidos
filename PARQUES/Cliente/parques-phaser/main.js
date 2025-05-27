@@ -1,12 +1,12 @@
 import Phaser from 'phaser'
-import GameScene from './scenes/GameScene.js'
+import GameScene from './src/scenes/GameScene.js'
 
 const config = {
   type: Phaser.AUTO,
-  width: 600,
-  height: 600,
-  backgroundColor: '#f8f8f8',
-  scene: [GameScene],
+  width: 900,
+  height: 900,
+  backgroundColor: '#000000',
+  scene: [GameScene]
 }
 
 new Phaser.Game(config)
