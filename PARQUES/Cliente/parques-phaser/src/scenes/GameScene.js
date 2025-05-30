@@ -31,6 +31,12 @@ export default class GameScene extends Phaser.Scene {
       color: '#000'
     })
 
+    this.dadoText = this.add.text(20, 50, '', {
+      fontSize: '18px',
+      fontStyle: 'bold',
+      color: '#000'
+    })
+
     this.socket = new WebSocket('ws://localhost:8000/ws')
 
     this.socket.onopen = () => {
@@ -43,7 +49,7 @@ export default class GameScene extends Phaser.Scene {
 
       if (data.accion === 'rechazado') {
         if (this.alertaTexto) this.alertaTexto.destroy()
-        this.alertaTexto = this.add.text(20, 70, `🚫 ${data.motivo}`, {
+        this.alertaTexto = this.add.text(20, 90, `🚫 ${data.motivo}`, {
           fontSize: '16px',
           color: '#ff0000',
           backgroundColor: '#ffffff',
@@ -68,6 +74,10 @@ export default class GameScene extends Phaser.Scene {
       if (data.turno) {
         this.turnoActual = data.turno
         this.turnoText.setText(`Turno: ${this.turnoActual}`)
+      }
+
+      if (data.dado !== undefined) {
+        this.dadoText.setText(`Dado: ${data.dado}`)
       }
     }
 

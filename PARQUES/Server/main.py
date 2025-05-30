@@ -2,6 +2,7 @@
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 import uvicorn
+from random import randint
 
 app = FastAPI()
 
@@ -70,14 +71,42 @@ async def websocket_endpoint(websocket: WebSocket):
                     })
                     continue
 
+                # Lanzar dado simulado
+                dado = randint(1, 6)
+
                 if ficha["pos"] not in CIRCULAR_PATH_IDS:
-                    await websocket.send_json({
-                        "accion": "rechazado",
-                        "motivo": "La ficha está en la cárcel",
-                        "jugador": jugador,
-                        "turno": game_state["turno"]
-                    })
+                    if dado == 5:
+                        # Buscar la casilla de salida del jugador
+                        salida = {
+                            "rojo": 0,
+                            "amarillo": 17,
+                            "azul": 34,
+                            "verde": 51
+                        }[jugador]
+                        ficha["pos"] = salida
+
+                        # Avanzar turno
+                        orden = ["rojo", "amarillo", "azul", "verde"]
+                        idx = orden.index(jugador)
+                        game_state["turno"] = orden[(idx + 1) % 4]
+
+                        for client in clients:
+                            await client.send_json({
+                                "accion": "mover",
+                                "jugador": jugador,
+                                "fichaId": ficha_id,
+                                "nuevaCasillaId": salida,
+                                "turno": game_state["turno"]
+                            })
+                    else:
+                        await websocket.send_json({
+                            "accion": "rechazado",
+                            "motivo": f"La ficha está en la cárcel y necesitas un 5 (sacaste {dado})",
+                            "jugador": jugador,
+                            "turno": game_state["turno"]
+                        })
                     continue
+
 
                 # Mover 3 posiciones como ejemplo
                 nueva_pos = (ficha["pos"] + 3) % 68
