@@ -7,6 +7,9 @@ export default class GameScene extends Phaser.Scene {
 
   preload() {
     this.load.image('tablero', '/tablero.png')
+    for (let i = 1; i <= 6; i++) {
+      this.load.image(`dado${i}`, `/dados/dado${i}.png`)
+    }
   }
 
   create() {
@@ -25,68 +28,87 @@ export default class GameScene extends Phaser.Scene {
     }
 
     this.turnoActual = null
+    this.estadoTurno = 'esperando_lanzamiento'
+    this.valoresDisponibles = []
+    this.valorSeleccionado = null
+
     this.turnoText = this.add.text(20, 20, '', {
-      fontSize: '18px',
-      fontStyle: 'bold',
-      color: '#000'
+      fontSize: '18px', fontStyle: 'bold', color: '#000'
     })
 
-    this.dadoText = this.add.text(20, 50, '', {
-      fontSize: '18px',
-      fontStyle: 'bold',
-      color: '#000'
+    this.dadoText = this.add.text(400, 850, '', {
+      fontSize: '18px', fontStyle: 'bold', color: '#000'
+    })
+
+    this.dadoSprite1 = this.add.image(420, 800, 'dado1').setScale(0.2)
+    this.dadoSprite2 = this.add.image(480, 800, 'dado1').setScale(0.2)
+
+    this.botonesDados = []
+
+    this.lanzarBtn = this.add.text(380, 880, '🎲 Lanzar', {
+      fontSize: '22px', backgroundColor: '#4caf50', color: '#fff', padding: { x: 10, y: 5 }
+    }).setInteractive({ useHandCursor: true })
+
+    this.lanzarBtn.on('pointerdown', () => {
+      if (this.estadoTurno !== 'esperando_lanzamiento') return
+      this.lanzarBtn.disableInteractive()
+      const jugador = this.turnoActual
+      this.socket.send(JSON.stringify({ accion: 'lanzar_dados', jugador }))
     })
 
     this.socket = new WebSocket('ws://localhost:8000/ws')
 
-    this.socket.onopen = () => {
-      console.log('✅ Conectado al backend')
-    }
-
     this.socket.onmessage = (event) => {
       const data = JSON.parse(event.data)
-      console.log('📥 Estado recibido del backend:', data)
 
-      if (data.accion === 'rechazado') {
-        if (this.alertaTexto) this.alertaTexto.destroy()
-        this.alertaTexto = this.add.text(20, 90, `🚫 ${data.motivo}`, {
-          fontSize: '16px',
-          color: '#ff0000',
-          backgroundColor: '#ffffff',
-          padding: { left: 10, right: 10, top: 5, bottom: 5 }
-        }).setScrollFactor(0).setDepth(100).setAlpha(0.95)
-
-        this.time.delayedCall(3000, () => {
-          if (this.alertaTexto) this.alertaTexto.destroy()
-        })
-        return
+      if (data.accion === 'estado_inicial') {
+        this.turnoActual = data.turno
+        this.turnoText.setText(`Turno: ${this.turnoActual}`)
       }
 
-      if (data.accion === 'mover' && data.jugador && data.nuevaCasillaId !== undefined) {
+      if (data.accion === 'resultado_dados') {
+        const { dado1, dado2, valores } = data
+        this.dadoSprite1.setTexture(`dado${dado1}`)
+        this.dadoSprite2.setTexture(`dado${dado2}`)
+        this.dadoText.setText(`Dados: ${dado1} + ${dado2}`)
+        this.estadoTurno = 'esperando_movimiento'
+        this.valoresDisponibles = valores
+        this.renderBotonesValores()
+      }
+
+      if (data.accion === 'rechazado') {
+        this.alertaTexto?.destroy()
+        this.alertaTexto = this.add.text(20, 90, `🚫 ${data.motivo}`, {
+          fontSize: '16px', color: '#ff0000', backgroundColor: '#fff', padding: { left: 10, right: 10, top: 5, bottom: 5 }
+        })
+        this.time.delayedCall(3000, () => this.alertaTexto?.destroy())
+        if (data.reintentar) {
+          this.estadoTurno = 'esperando_lanzamiento'
+          this.lanzarBtn.setInteractive({ useHandCursor: true })
+        }
+      }
+
+      if (data.accion === 'mover') {
         const ficha = this.fichas.find(f => f.getData('jugador') === data.jugador && f.getData('fichaId') === data.fichaId)
         const destino = casillas.find(c => c.id === data.nuevaCasillaId)
         if (ficha && destino) {
           ficha.setPosition(destino.x, destino.y)
           ficha.setData('casillaId', destino.id)
         }
-      }
 
-      if (data.turno) {
-        this.turnoActual = data.turno
-        this.turnoText.setText(`Turno: ${this.turnoActual}`)
-      }
+        this.valoresDisponibles = data.restantes || []
+        this.renderBotonesValores()
 
-      if (data.dado !== undefined) {
-        this.dadoText.setText(`Dado: ${data.dado}`)
+        if (this.valoresDisponibles.length === 0) {
+          this.estadoTurno = 'esperando_lanzamiento'
+          this.turnoActual = data.turno
+          this.turnoText.setText(`Turno: ${this.turnoActual}`)
+          this.lanzarBtn.setInteractive({ useHandCursor: true })
+        }
       }
-    }
-
-    this.socket.onerror = (err) => {
-      console.error('❌ Error en WebSocket:', err)
     }
 
     this.fichas = []
-
     colores.forEach(color => {
       const carceles = casillas.filter(c => c.tipo === 'carcel' && c.color === color)
       carceles.forEach((casilla, index) => {
@@ -94,37 +116,46 @@ export default class GameScene extends Phaser.Scene {
         const circulo = this.add.circle(0, 0, 15, colorMap[color])
         circulo.setStrokeStyle(2, 0x000000)
         const inicial = this.add.text(-6, -8, color.charAt(0).toUpperCase(), {
-          fontSize: '16px',
-          fontStyle: 'bold',
-          color: '#000'
+          fontSize: '16px', fontStyle: 'bold', color: '#000'
         })
         fichaContainer.add([circulo, inicial])
         fichaContainer.setData('jugador', color)
         fichaContainer.setData('fichaId', index)
         fichaContainer.setData('casillaId', casilla.id)
 
-        fichaContainer.setSize(30, 30)
-        fichaContainer.setInteractive({ useHandCursor: true })
-        fichaContainer.on('pointerdown', () => {
-          const jugador = fichaContainer.getData('jugador')
+        circulo.setInteractive({ useHandCursor: true })
+        circulo.on('pointerdown', () => {
+          if (color !== this.turnoActual || this.estadoTurno !== 'esperando_movimiento' || this.valorSeleccionado === null) return
           const fichaId = fichaContainer.getData('fichaId')
-
-          if (jugador !== this.turnoActual) {
-            console.log(`🚫 No es el turno de ${jugador}`)
-            return
-          }
-
-          console.log(`🎯 Ficha ${fichaId} de ${jugador} clickeada`)
-
-          this.socket.send(JSON.stringify({
-            accion: 'mover',
-            jugador,
-            fichaId
-          }))
+          this.socket.send(JSON.stringify({ accion: 'mover', jugador: color, fichaId, valor: this.valorSeleccionado }))
+          this.valorSeleccionado = null
         })
 
         this.fichas.push(fichaContainer)
       })
+    })
+  }
+
+  renderBotonesValores() {
+    this.botonesDados.forEach(b => b.destroy())
+    this.botonesDados = []
+
+    const startX = 250
+    const startY = 920
+    const spacing = 80
+
+    this.valoresDisponibles.forEach((valor, index) => {
+      const btn = this.add.text(startX + index * spacing, startY, `${valor}`, {
+        fontSize: '20px', backgroundColor: '#2196f3', color: '#fff', padding: { x: 10, y: 5 }
+      }).setInteractive({ useHandCursor: true })
+
+      btn.on('pointerdown', () => {
+        this.valorSeleccionado = valor
+        this.botonesDados.forEach(b => b.setStyle({ backgroundColor: '#2196f3' }))
+        btn.setStyle({ backgroundColor: '#1565c0' })
+      })
+
+      this.botonesDados.push(btn)
     })
   }
 }

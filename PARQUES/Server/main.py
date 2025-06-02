@@ -1,4 +1,3 @@
-# main.py
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 import uvicorn
@@ -6,7 +5,6 @@ from random import randint
 
 app = FastAPI()
 
-# Permitir acceso desde cualquier origen (para el frontend)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -17,19 +15,27 @@ app.add_middleware(
 
 clients = []
 
-# Estado del juego con múltiples fichas por jugador
-game_state = {
+juego = {
     "fichas": {
-        "rojo": [ {"id": 0, "pos": 68}, {"id": 1, "pos": 69}, {"id": 2, "pos": 70}, {"id": 3, "pos": 71} ],
-        "amarillo": [ {"id": 0, "pos": 72}, {"id": 1, "pos": 73}, {"id": 2, "pos": 74}, {"id": 3, "pos": 75} ],
-        "azul": [ {"id": 0, "pos": 76}, {"id": 1, "pos": 77}, {"id": 2, "pos": 78}, {"id": 3, "pos": 79} ],
-        "verde": [ {"id": 0, "pos": 80}, {"id": 1, "pos": 81}, {"id": 2, "pos": 82}, {"id": 3, "pos": 83} ]
+        "rojo": [ {"id": i, "pos": 68+i} for i in range(4) ],
+        "amarillo": [ {"id": i, "pos": 72+i} for i in range(4) ],
+        "azul": [ {"id": i, "pos": 76+i} for i in range(4) ],
+        "verde": [ {"id": i, "pos": 80+i} for i in range(4) ]
     },
-    "turno": "rojo"
+    "turno": "rojo",
+    "dados": {},
+    "estado_turno": "esperando_lanzamiento",
+    "intentos_carcel": {"rojo": 0, "amarillo": 0, "azul": 0, "verde": 0},
+    "valores_disponibles": {"rojo": [], "amarillo": [], "azul": [], "verde": []}
 }
 
-# Camino circular (casillas 0 a 67)
 CIRCULAR_PATH_IDS = list(range(68))
+SALIDAS = {
+    "rojo": 0,
+    "amarillo": 17,
+    "azul": 34,
+    "verde": 51
+}
 
 @app.websocket("/ws")
 async def websocket_endpoint(websocket: WebSocket):
@@ -38,7 +44,7 @@ async def websocket_endpoint(websocket: WebSocket):
 
     await websocket.send_json({
         "accion": "estado_inicial",
-        "turno": game_state["turno"]
+        "turno": juego["turno"]
     })
 
     try:
@@ -46,76 +52,138 @@ async def websocket_endpoint(websocket: WebSocket):
             data = await websocket.receive_json()
             accion = data.get("accion")
 
-            if accion == "mover":
+            if accion == "lanzar_dados":
                 jugador = data.get("jugador")
-                ficha_id = data.get("fichaId")
-
-                if jugador != game_state["turno"]:
+                if jugador != juego["turno"]:
                     await websocket.send_json({
                         "accion": "rechazado",
                         "motivo": "No es tu turno",
-                        "jugador": jugador,
-                        "turno": game_state["turno"]
+                        "jugador": jugador
                     })
                     continue
 
-                fichas_jugador = game_state["fichas"].get(jugador, [])
-                ficha = next((f for f in fichas_jugador if f["id"] == ficha_id), None)
+                if juego["estado_turno"] != "esperando_lanzamiento":
+                    await websocket.send_json({
+                        "accion": "rechazado",
+                        "motivo": "Ya lanzaste los dados",
+                        "jugador": jugador
+                    })
+                    continue
 
+                dado1 = randint(1, 6)
+                dado2 = randint(1, 6)
+                juego["dados"][jugador] = (dado1, dado2)
+                juego["valores_disponibles"][jugador] = [dado1, dado2, dado1 + dado2]
+
+                for client in clients:
+                    await client.send_json({
+                        "accion": "resultado_dados",
+                        "jugador": jugador,
+                        "dado1": dado1,
+                        "dado2": dado2,
+                        "valores": juego["valores_disponibles"][jugador]
+                    })
+
+                fichas = juego["fichas"][jugador]
+                en_carcel = all(f["pos"] not in CIRCULAR_PATH_IDS for f in fichas)
+
+                if en_carcel:
+                    if dado1 == dado2:
+                        juego["estado_turno"] = "esperando_movimiento"
+                        juego["intentos_carcel"][jugador] = 0
+                    else:
+                        juego["intentos_carcel"][jugador] += 1
+                        intentos = juego["intentos_carcel"][jugador]
+                        if intentos >= 3:
+                            orden = ["rojo", "amarillo", "azul", "verde"]
+                            idx = orden.index(jugador)
+                            juego["turno"] = orden[(idx + 1) % 4]
+                            juego["dados"].pop(jugador, None)
+                            juego["valores_disponibles"][jugador] = []
+                            juego["estado_turno"] = "esperando_lanzamiento"
+                            juego["intentos_carcel"][jugador] = 0
+                            for client in clients:
+                                await client.send_json({
+                                    "accion": "pasar_turno",
+                                    "jugador": jugador,
+                                    "motivo": "No pudo salir de la cárcel en 3 intentos",
+                                    "turno": juego["turno"]
+                                })
+                            continue
+                        else:
+                            juego["estado_turno"] = "esperando_lanzamiento"
+                            for client in clients:
+                                await client.send_json({
+                                    "accion": "rechazado",
+                                    "motivo": f"Necesitas pares para salir de la cárcel (Intento {intentos}/3)",
+                                    "jugador": jugador,
+                                    "reintentar": True
+                                })
+                            continue
+                else:
+                    juego["estado_turno"] = "esperando_movimiento"
+
+            elif accion == "mover":
+                jugador = data.get("jugador")
+                ficha_id = data.get("fichaId")
+                valor = data.get("valor")
+
+                if jugador != juego["turno"]:
+                    await websocket.send_json({
+                        "accion": "rechazado",
+                        "motivo": "No es tu turno",
+                        "jugador": jugador
+                    })
+                    continue
+
+                if juego["estado_turno"] != "esperando_movimiento":
+                    await websocket.send_json({
+                        "accion": "rechazado",
+                        "motivo": "Debes lanzar los dados primero",
+                        "jugador": jugador
+                    })
+                    continue
+
+                if valor not in juego["valores_disponibles"][jugador]:
+                    await websocket.send_json({
+                        "accion": "rechazado",
+                        "motivo": f"El valor {valor} no está disponible para mover",
+                        "jugador": jugador
+                    })
+                    continue
+
+                ficha = next((f for f in juego["fichas"][jugador] if f["id"] == ficha_id), None)
                 if not ficha:
                     await websocket.send_json({
                         "accion": "rechazado",
                         "motivo": "Ficha no encontrada",
-                        "jugador": jugador,
-                        "turno": game_state["turno"]
+                        "jugador": jugador
                     })
                     continue
 
-                # Lanzar dado simulado
-                dado = randint(1, 6)
-
                 if ficha["pos"] not in CIRCULAR_PATH_IDS:
-                    if dado == 5:
-                        # Buscar la casilla de salida del jugador
-                        salida = {
-                            "rojo": 0,
-                            "amarillo": 17,
-                            "azul": 34,
-                            "verde": 51
-                        }[jugador]
-                        ficha["pos"] = salida
-
-                        # Avanzar turno
-                        orden = ["rojo", "amarillo", "azul", "verde"]
-                        idx = orden.index(jugador)
-                        game_state["turno"] = orden[(idx + 1) % 4]
-
-                        for client in clients:
-                            await client.send_json({
-                                "accion": "mover",
-                                "jugador": jugador,
-                                "fichaId": ficha_id,
-                                "nuevaCasillaId": salida,
-                                "turno": game_state["turno"]
-                            })
+                    if valor == (juego["dados"][jugador][0] + juego["dados"][jugador][1]):
+                        ficha["pos"] = SALIDAS[jugador]
+                        juego["intentos_carcel"][jugador] = 0
                     else:
                         await websocket.send_json({
                             "accion": "rechazado",
-                            "motivo": f"La ficha está en la cárcel y necesitas un 5 (sacaste {dado})",
-                            "jugador": jugador,
-                            "turno": game_state["turno"]
+                            "motivo": "Ficha en cárcel y valor no corresponde a pares",
+                            "jugador": jugador
                         })
-                    continue
+                        continue
+                else:
+                    ficha["pos"] = (ficha["pos"] + valor) % 68
 
+                nueva_pos = ficha["pos"]
+                juego["valores_disponibles"][jugador].remove(valor)
 
-                # Mover 3 posiciones como ejemplo
-                nueva_pos = (ficha["pos"] + 3) % 68
-                ficha["pos"] = nueva_pos
-
-                # Avanzar turno
-                orden = ["rojo", "amarillo", "azul", "verde"]
-                idx = orden.index(jugador)
-                game_state["turno"] = orden[(idx + 1) % 4]
+                if not juego["valores_disponibles"][jugador]:
+                    orden = ["rojo", "amarillo", "azul", "verde"]
+                    idx = orden.index(jugador)
+                    juego["turno"] = orden[(idx + 1) % 4]
+                    juego["dados"].pop(jugador, None)
+                    juego["estado_turno"] = "esperando_lanzamiento"
 
                 for client in clients:
                     await client.send_json({
@@ -123,11 +191,13 @@ async def websocket_endpoint(websocket: WebSocket):
                         "jugador": jugador,
                         "fichaId": ficha_id,
                         "nuevaCasillaId": nueva_pos,
-                        "turno": game_state["turno"]
+                        "turno": juego["turno"],
+                        "restantes": juego["valores_disponibles"][jugador]
                     })
 
     except WebSocketDisconnect:
-        clients.remove(websocket)
+        if websocket in clients:
+            clients.remove(websocket)
 
 if __name__ == "__main__":
     uvicorn.run("main:app", host="0.0.0.0", port=8000, reload=True)
