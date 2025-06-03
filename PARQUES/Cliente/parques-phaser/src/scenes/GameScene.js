@@ -6,6 +6,7 @@ export default class GameScene extends Phaser.Scene {
   }
 
   preload() {
+    console.log('[Phaser] Preload assets')
     this.load.image('tablero', '/tablero.png')
     for (let i = 1; i <= 6; i++) {
       this.load.image(`dado${i}`, `/dados/dado${i}.png`)
@@ -13,6 +14,7 @@ export default class GameScene extends Phaser.Scene {
   }
 
   create() {
+    console.log('[Phaser] Create scene')
     const scale = 1
     const tablero = this.add.image(this.cameras.main.centerX, this.cameras.main.centerY, 'tablero')
     tablero.setOrigin(0.5, 0.5)
@@ -50,9 +52,11 @@ export default class GameScene extends Phaser.Scene {
     }).setInteractive({ useHandCursor: true })
 
     this.lanzarBtn.on('pointerdown', () => {
+      console.log('[UI] Botón lanzar presionado')
       if (this.estadoTurno !== 'esperando_lanzamiento') return
       this.lanzarBtn.disableInteractive()
       const jugador = this.turnoActual
+      console.log(`[ENVÍO] Lanzar dados para: ${jugador}`)
       this.socket.send(JSON.stringify({ accion: 'lanzar_dados', jugador }))
     })
 
@@ -60,6 +64,7 @@ export default class GameScene extends Phaser.Scene {
 
     this.socket.onmessage = (event) => {
       const data = JSON.parse(event.data)
+      console.log('[RECEPCIÓN]', data)
 
       if (data.accion === 'estado_inicial') {
         this.turnoActual = data.turno
@@ -89,6 +94,7 @@ export default class GameScene extends Phaser.Scene {
       }
 
       if (data.accion === 'mover') {
+        console.log(`[MOVER] ${data.jugador} movió ficha ${data.fichaId} a casilla ${data.nuevaCasillaId}`)
         const ficha = this.fichas.find(f => f.getData('jugador') === data.jugador && f.getData('fichaId') === data.fichaId)
         const destino = casillas.find(c => c.id === data.nuevaCasillaId)
         if (ficha && destino) {
@@ -125,9 +131,40 @@ export default class GameScene extends Phaser.Scene {
 
         circulo.setInteractive({ useHandCursor: true })
         circulo.on('pointerdown', () => {
-          if (color !== this.turnoActual || this.estadoTurno !== 'esperando_movimiento' || this.valorSeleccionado === null) return
+          if (color !== this.turnoActual || this.estadoTurno !== 'esperando_movimiento') return
+
           const fichaId = fichaContainer.getData('fichaId')
-          this.socket.send(JSON.stringify({ accion: 'mover', jugador: color, fichaId, valor: this.valorSeleccionado }))
+          const casillaId = fichaContainer.getData('casillaId')
+
+          const estaEnCarcel = casillas.find(c => c.id === casillaId)?.tipo === 'carcel'
+          if (estaEnCarcel) {
+            console.log(`[UI] Ficha ${fichaId} en cárcel, se moverá sin seleccionar valor`)
+            this.socket.send(JSON.stringify({
+              accion: 'mover',
+              jugador: color,
+              fichaId,
+              valor: this.valoresDisponibles.includes(this.valoresDisponibles[2]) ? this.valoresDisponibles[2] : this.valoresDisponibles[0] + this.valoresDisponibles[1] // normalmente es suma
+            }))
+            return
+          }
+
+          if (this.valorSeleccionado === null) return
+
+          console.log(`[UI] Ficha seleccionada: ${fichaId} con valor ${this.valorSeleccionado}`)
+
+          this.socket.send(JSON.stringify({
+            accion: 'mover',
+            jugador: color,
+            fichaId,
+            valor: this.valorSeleccionado
+          }))
+
+          const btnUsado = this.botonesDados.find(b => b.getData('valor') === this.valorSeleccionado)
+          if (btnUsado) {
+            btnUsado.setStyle({ backgroundColor: '#999' })
+            btnUsado.disableInteractive()
+          }
+
           this.valorSeleccionado = null
         })
 
@@ -150,11 +187,13 @@ export default class GameScene extends Phaser.Scene {
       }).setInteractive({ useHandCursor: true })
 
       btn.on('pointerdown', () => {
+        console.log(`[UI] Valor seleccionado: ${valor}`)
         this.valorSeleccionado = valor
         this.botonesDados.forEach(b => b.setStyle({ backgroundColor: '#2196f3' }))
         btn.setStyle({ backgroundColor: '#1565c0' })
       })
 
+      btn.setData('valor', valor)
       this.botonesDados.push(btn)
     })
   }

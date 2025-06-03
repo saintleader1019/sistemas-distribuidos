@@ -128,6 +128,9 @@ async def websocket_endpoint(websocket: WebSocket):
                 ficha_id = data.get("fichaId")
                 valor = data.get("valor")
 
+                print(f"[MOVER] Jugador: {jugador}, Ficha ID: {ficha_id}, Valor usado: {valor}")
+                print(f"[MOVER] Valores disponibles antes: {juego['valores_disponibles'][jugador]}")
+
                 if jugador != juego["turno"]:
                     await websocket.send_json({
                         "accion": "rechazado",
@@ -178,12 +181,16 @@ async def websocket_endpoint(websocket: WebSocket):
                 nueva_pos = ficha["pos"]
                 juego["valores_disponibles"][jugador].remove(valor)
 
+                print(f"[MOVER] Nueva posición ficha: {nueva_pos}")
+                print(f"[MOVER] Valores disponibles después: {juego['valores_disponibles'][jugador]}")
+
                 if not juego["valores_disponibles"][jugador]:
                     orden = ["rojo", "amarillo", "azul", "verde"]
                     idx = orden.index(jugador)
                     juego["turno"] = orden[(idx + 1) % 4]
                     juego["dados"].pop(jugador, None)
                     juego["estado_turno"] = "esperando_lanzamiento"
+                    print(f"[TURNO] Se pasa el turno a: {juego['turno']}")
 
                 for client in clients:
                     await client.send_json({
