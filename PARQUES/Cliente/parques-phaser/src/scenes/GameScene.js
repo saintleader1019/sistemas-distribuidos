@@ -112,7 +112,6 @@ export default class GameScene extends Phaser.Scene {
           this.lanzarBtn.setInteractive({ useHandCursor: true })
         }
       }
-    }
 
     this.fichas = []
     colores.forEach(color => {
