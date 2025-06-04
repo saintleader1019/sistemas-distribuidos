@@ -41,33 +41,26 @@ SALIDAS = {
 async def websocket_endpoint(websocket: WebSocket):
     await websocket.accept()
     clients.append(websocket)
+    print("[SERVER] Cliente conectado")
 
-    await websocket.send_json({
-        "accion": "estado_inicial",
-        "turno": juego["turno"]
-    })
+    await websocket.send_json({"accion": "estado_inicial", "turno": juego["turno"]})
 
     try:
         while True:
             data = await websocket.receive_json()
             accion = data.get("accion")
+            print(f"[RECEIVED] Acción: {accion} | Datos: {data}")
 
             if accion == "lanzar_dados":
                 jugador = data.get("jugador")
                 if jugador != juego["turno"]:
-                    await websocket.send_json({
-                        "accion": "rechazado",
-                        "motivo": "No es tu turno",
-                        "jugador": jugador
-                    })
+                    print(f"[REJECTED] No es el turno de {jugador}")
+                    await websocket.send_json({"accion": "rechazado", "motivo": "No es tu turno", "jugador": jugador})
                     continue
 
                 if juego["estado_turno"] != "esperando_lanzamiento":
-                    await websocket.send_json({
-                        "accion": "rechazado",
-                        "motivo": "Ya lanzaste los dados",
-                        "jugador": jugador
-                    })
+                    print(f"[REJECTED] {jugador} ya lanzó los dados")
+                    await websocket.send_json({"accion": "rechazado", "motivo": "Ya lanzaste los dados", "jugador": jugador})
                     continue
 
                 dado1 = randint(1, 6)
@@ -75,25 +68,23 @@ async def websocket_endpoint(websocket: WebSocket):
                 juego["dados"][jugador] = (dado1, dado2)
                 juego["valores_disponibles"][jugador] = [dado1, dado2, dado1 + dado2]
 
+                print(f"[DADOS] {jugador} lanzó: {dado1}, {dado2} → opciones: {[dado1, dado2, dado1 + dado2]}")
+
                 for client in clients:
-                    await client.send_json({
-                        "accion": "resultado_dados",
-                        "jugador": jugador,
-                        "dado1": dado1,
-                        "dado2": dado2,
-                        "valores": juego["valores_disponibles"][jugador]
-                    })
+                    await client.send_json({"accion": "resultado_dados", "jugador": jugador, "dado1": dado1, "dado2": dado2, "valores": juego["valores_disponibles"][jugador]})
 
                 fichas = juego["fichas"][jugador]
                 en_carcel = all(f["pos"] not in CIRCULAR_PATH_IDS for f in fichas)
 
                 if en_carcel:
                     if dado1 == dado2:
+                        print(f"[CARCEL] {jugador} obtuvo pares y puede salir")
                         juego["estado_turno"] = "esperando_movimiento"
                         juego["intentos_carcel"][jugador] = 0
                     else:
                         juego["intentos_carcel"][jugador] += 1
                         intentos = juego["intentos_carcel"][jugador]
+                        print(f"[CARCEL] {jugador} falló intento {intentos}/3")
                         if intentos >= 3:
                             orden = ["rojo", "amarillo", "azul", "verde"]
                             idx = orden.index(jugador)
@@ -102,23 +93,14 @@ async def websocket_endpoint(websocket: WebSocket):
                             juego["valores_disponibles"][jugador] = []
                             juego["estado_turno"] = "esperando_lanzamiento"
                             juego["intentos_carcel"][jugador] = 0
+                            print(f"[TURNO] Se pasa el turno a {juego['turno']}")
                             for client in clients:
-                                await client.send_json({
-                                    "accion": "pasar_turno",
-                                    "jugador": jugador,
-                                    "motivo": "No pudo salir de la cárcel en 3 intentos",
-                                    "turno": juego["turno"]
-                                })
+                                await client.send_json({"accion": "pasar_turno", "jugador": jugador, "motivo": "No pudo salir de la cárcel en 3 intentos", "turno": juego["turno"]})
                             continue
                         else:
                             juego["estado_turno"] = "esperando_lanzamiento"
                             for client in clients:
-                                await client.send_json({
-                                    "accion": "rechazado",
-                                    "motivo": f"Necesitas pares para salir de la cárcel (Intento {intentos}/3)",
-                                    "jugador": jugador,
-                                    "reintentar": True
-                                })
+                                await client.send_json({"accion": "rechazado", "motivo": f"Necesitas pares para salir de la cárcel (Intento {intentos}/3)", "jugador": jugador, "reintentar": True})
                             continue
                 else:
                     juego["estado_turno"] = "esperando_movimiento"
@@ -128,61 +110,46 @@ async def websocket_endpoint(websocket: WebSocket):
                 ficha_id = data.get("fichaId")
                 valor = data.get("valor")
 
-                print(f"[MOVER] Jugador: {jugador}, Ficha ID: {ficha_id}, Valor usado: {valor}")
-                print(f"[MOVER] Valores disponibles antes: {juego['valores_disponibles'][jugador]}")
-
-                if jugador != juego["turno"]:
-                    await websocket.send_json({
-                        "accion": "rechazado",
-                        "motivo": "No es tu turno",
-                        "jugador": jugador
-                    })
-                    continue
-
-                if juego["estado_turno"] != "esperando_movimiento":
-                    await websocket.send_json({
-                        "accion": "rechazado",
-                        "motivo": "Debes lanzar los dados primero",
-                        "jugador": jugador
-                    })
+                if jugador != juego["turno"] or juego["estado_turno"] != "esperando_movimiento":
+                    print(f"[REJECTED] Movimiento inválido por parte de {jugador}")
+                    await websocket.send_json({"accion": "rechazado", "motivo": "No puedes mover ahora", "jugador": jugador})
                     continue
 
                 if valor not in juego["valores_disponibles"][jugador]:
-                    await websocket.send_json({
-                        "accion": "rechazado",
-                        "motivo": f"El valor {valor} no está disponible para mover",
-                        "jugador": jugador
-                    })
+                    print(f"[REJECTED] {jugador} intentó mover con valor {valor}, que ya fue consumido. Valores disponibles actuales: {juego['valores_disponibles'][jugador]}")
+                    print(f"[REJECTED] Valor {valor} no disponible para {jugador}")
+                    await websocket.send_json({"accion": "rechazado", "motivo": f"El valor {valor} no está disponible para mover", "jugador": jugador})
                     continue
 
                 ficha = next((f for f in juego["fichas"][jugador] if f["id"] == ficha_id), None)
                 if not ficha:
-                    await websocket.send_json({
-                        "accion": "rechazado",
-                        "motivo": "Ficha no encontrada",
-                        "jugador": jugador
-                    })
+                    print(f"[REJECTED] Ficha {ficha_id} no encontrada para {jugador}")
+                    await websocket.send_json({"accion": "rechazado", "motivo": "Ficha no encontrada", "jugador": jugador})
                     continue
 
+                dado1, dado2 = juego["dados"][jugador]
+                suma = dado1 + dado2
+
+                if valor == suma:
+                    juego["valores_disponibles"][jugador] = []
+                elif valor == dado1:
+                    juego["valores_disponibles"][jugador] = [dado2] if dado2 != dado1 else []
+                elif valor == dado2:
+                    juego["valores_disponibles"][jugador] = [dado1] if dado1 != dado2 else []
+
                 if ficha["pos"] not in CIRCULAR_PATH_IDS:
-                    if valor == (juego["dados"][jugador][0] + juego["dados"][jugador][1]):
+                    if dado1 == dado2:
                         ficha["pos"] = SALIDAS[jugador]
                         juego["intentos_carcel"][jugador] = 0
+                        print(f"[MOVER] {jugador} saca ficha {ficha_id} de la cárcel a {SALIDAS[jugador]}")
                     else:
-                        await websocket.send_json({
-                            "accion": "rechazado",
-                            "motivo": "Ficha en cárcel y valor no corresponde a pares",
-                            "jugador": jugador
-                        })
+                        await websocket.send_json({"accion": "rechazado", "motivo": "Ficha en cárcel y valor no corresponde a pares", "jugador": jugador})
                         continue
                 else:
                     ficha["pos"] = (ficha["pos"] + valor) % 68
+                    print(f"[MOVER] {jugador} movió ficha {ficha_id} a casilla {ficha['pos']} con valor {valor}")
 
                 nueva_pos = ficha["pos"]
-                juego["valores_disponibles"][jugador].remove(valor)
-
-                print(f"[MOVER] Nueva posición ficha: {nueva_pos}")
-                print(f"[MOVER] Valores disponibles después: {juego['valores_disponibles'][jugador]}")
 
                 if not juego["valores_disponibles"][jugador]:
                     orden = ["rojo", "amarillo", "azul", "verde"]
@@ -190,7 +157,9 @@ async def websocket_endpoint(websocket: WebSocket):
                     juego["turno"] = orden[(idx + 1) % 4]
                     juego["dados"].pop(jugador, None)
                     juego["estado_turno"] = "esperando_lanzamiento"
-                    print(f"[TURNO] Se pasa el turno a: {juego['turno']}")
+                    print(f"[TURNO] Cambio de turno → ahora juega: {juego['turno']}")
+                else:
+                    print(f"[MOVIMIENTO] Valores restantes para {jugador}: {juego['valores_disponibles'][jugador]}")
 
                 for client in clients:
                     await client.send_json({
@@ -205,6 +174,7 @@ async def websocket_endpoint(websocket: WebSocket):
     except WebSocketDisconnect:
         if websocket in clients:
             clients.remove(websocket)
+        print("[SERVER] Cliente desconectado")
 
 if __name__ == "__main__":
     uvicorn.run("main:app", host="0.0.0.0", port=8000, reload=True)

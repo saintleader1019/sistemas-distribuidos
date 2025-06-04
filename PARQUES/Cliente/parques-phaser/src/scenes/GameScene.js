@@ -1,9 +1,12 @@
+// Código actualizado para frontend con limpieza de marcadores y botones según valores usados
 import { casillas } from './casillas.js'
 
 export default class GameScene extends Phaser.Scene {
   constructor() {
     super('GameScene')
-  }
+    this.moveMarkers = []
+    this.fichaSeleccionada = null
+    }
 
   preload() {
     console.log('[Phaser] Preload assets')
@@ -38,7 +41,7 @@ export default class GameScene extends Phaser.Scene {
       fontSize: '18px', fontStyle: 'bold', color: '#000'
     })
 
-    this.dadoText = this.add.text(400, 850, '', {
+        this.dadoText = this.add.text(400, 850, '', {
       fontSize: '18px', fontStyle: 'bold', color: '#000'
     })
 
@@ -47,7 +50,7 @@ export default class GameScene extends Phaser.Scene {
 
     this.botonesDados = []
 
-    this.lanzarBtn = this.add.text(380, 880, '🎲 Lanzar', {
+    this.lanzarBtn = this.add.text(380, 850, '🎲 Lanzar', {
       fontSize: '22px', backgroundColor: '#4caf50', color: '#fff', padding: { x: 10, y: 5 }
     }).setInteractive({ useHandCursor: true })
 
@@ -61,57 +64,6 @@ export default class GameScene extends Phaser.Scene {
     })
 
     this.socket = new WebSocket('ws://localhost:8000/ws')
-
-    this.socket.onmessage = (event) => {
-      const data = JSON.parse(event.data)
-      console.log('[RECEPCIÓN]', data)
-
-      if (data.accion === 'estado_inicial') {
-        this.turnoActual = data.turno
-        this.turnoText.setText(`Turno: ${this.turnoActual}`)
-      }
-
-      if (data.accion === 'resultado_dados') {
-        const { dado1, dado2, valores } = data
-        this.dadoSprite1.setTexture(`dado${dado1}`)
-        this.dadoSprite2.setTexture(`dado${dado2}`)
-        this.dadoText.setText(`Dados: ${dado1} + ${dado2}`)
-        this.estadoTurno = 'esperando_movimiento'
-        this.valoresDisponibles = valores
-        this.renderBotonesValores()
-      }
-
-      if (data.accion === 'rechazado') {
-        this.alertaTexto?.destroy()
-        this.alertaTexto = this.add.text(20, 90, `🚫 ${data.motivo}`, {
-          fontSize: '16px', color: '#ff0000', backgroundColor: '#fff', padding: { left: 10, right: 10, top: 5, bottom: 5 }
-        })
-        this.time.delayedCall(3000, () => this.alertaTexto?.destroy())
-        if (data.reintentar) {
-          this.estadoTurno = 'esperando_lanzamiento'
-          this.lanzarBtn.setInteractive({ useHandCursor: true })
-        }
-      }
-
-      if (data.accion === 'mover') {
-        console.log(`[MOVER] ${data.jugador} movió ficha ${data.fichaId} a casilla ${data.nuevaCasillaId}`)
-        const ficha = this.fichas.find(f => f.getData('jugador') === data.jugador && f.getData('fichaId') === data.fichaId)
-        const destino = casillas.find(c => c.id === data.nuevaCasillaId)
-        if (ficha && destino) {
-          ficha.setPosition(destino.x, destino.y)
-          ficha.setData('casillaId', destino.id)
-        }
-
-        this.valoresDisponibles = data.restantes || []
-        this.renderBotonesValores()
-
-        if (this.valoresDisponibles.length === 0) {
-          this.estadoTurno = 'esperando_lanzamiento'
-          this.turnoActual = data.turno
-          this.turnoText.setText(`Turno: ${this.turnoActual}`)
-          this.lanzarBtn.setInteractive({ useHandCursor: true })
-        }
-      }
 
     this.fichas = []
     colores.forEach(color => {
@@ -137,61 +89,157 @@ export default class GameScene extends Phaser.Scene {
 
           const estaEnCarcel = casillas.find(c => c.id === casillaId)?.tipo === 'carcel'
           if (estaEnCarcel) {
-            console.log(`[UI] Ficha ${fichaId} en cárcel, se moverá sin seleccionar valor`)
+            console.log(`[UI] Ficha ${fichaId} en cárcel, intento de movimiento automático.`)
             this.socket.send(JSON.stringify({
-              accion: 'mover',
-              jugador: color,
-              fichaId,
-              valor: this.valoresDisponibles.includes(this.valoresDisponibles[2]) ? this.valoresDisponibles[2] : this.valoresDisponibles[0] + this.valoresDisponibles[1] // normalmente es suma
+              accion: 'mover', jugador: color, fichaId, valor: this.valoresDisponibles[2]
             }))
             return
           }
 
-          if (this.valorSeleccionado === null) return
-
-          console.log(`[UI] Ficha seleccionada: ${fichaId} con valor ${this.valorSeleccionado}`)
-
-          this.socket.send(JSON.stringify({
-            accion: 'mover',
-            jugador: color,
-            fichaId,
-            valor: this.valorSeleccionado
-          }))
-
-          const btnUsado = this.botonesDados.find(b => b.getData('valor') === this.valorSeleccionado)
-          if (btnUsado) {
-            btnUsado.setStyle({ backgroundColor: '#999' })
-            btnUsado.disableInteractive()
-          }
-
-          this.valorSeleccionado = null
+          this.fichaSeleccionada = fichaContainer
+          console.log(`[UI] Ficha seleccionada: ${fichaId} en casilla ${casillaId}`)
+          this.drawMoveMarkers(fichaId, casillaId)
         })
 
         this.fichas.push(fichaContainer)
       })
     })
+
+    this.socket.onmessage = (event) => {
+      const data = JSON.parse(event.data)
+      console.log('[RECEPCIÓN]', data)
+
+      if (data.accion === 'estado_inicial') {
+        this.turnoActual = data.turno
+        this.turnoText.setText(`Turno: ${this.turnoActual}`)
+      }
+
+      if (data.accion === 'resultado_dados') {
+        const { dado1, dado2, valores } = data
+        this.dadoSprite1.setTexture(`dado${dado1}`)
+        this.dadoSprite2.setTexture(`dado${dado2}`)
+        this.dadoText.setText(`Dados: ${dado1} + ${dado2}`)
+        this.estadoTurno = 'esperando_movimiento'
+        this.valoresDisponibles = valores
+                console.log(`[UI] Valores disponibles actualizados: ${valores.join(', ')}`)
+        this.renderBotonesValores()
+        console.log(`[UI] Botones renderizados para: ${this.valoresDisponibles.join(', ')}`)
+        this.updateValoresText(this.valoresDisponibles)
+        console.log(`[UI] Valores restantes tras movimiento: ${this.valoresDisponibles.join(', ')}`)
+      }
+
+      if (data.accion === 'rechazado') {
+        this.alertaTexto?.destroy()
+        this.alertaTexto = this.add.text(20, 90, `🚫 ${data.motivo}`, {
+          fontSize: '16px', color: '#ff0000', backgroundColor: '#fff', padding: { left: 10, right: 10, top: 5, bottom: 5 }
+        })
+        this.time.delayedCall(3000, () => this.alertaTexto?.destroy())
+        if (data.reintentar) {
+          this.estadoTurno = 'esperando_lanzamiento'
+          this.lanzarBtn.setInteractive({ useHandCursor: true })
+        }
+      }
+
+      if (data.accion === 'mover') {
+        const ficha = this.fichas.find(f => f.getData('jugador') === data.jugador && f.getData('fichaId') === data.fichaId)
+        const destino = casillas.find(c => c.id === data.nuevaCasillaId)
+        if (ficha && destino) {
+          ficha.setPosition(destino.x, destino.y)
+          ficha.setData('casillaId', destino.id)
+        }
+
+        this.valoresDisponibles = data.restantes || []
+        console.log(`[UI] Valores disponibles actualizados: ${this.valoresDisponibles.join(', ')}`)
+        this.clearMoveMarkers()
+        this.clearMoveMarkers()
+        this.renderBotonesValores()
+
+        if (this.valoresDisponibles.length === 0) {
+          this.estadoTurno = 'esperando_lanzamiento'
+          this.turnoActual = data.turno
+          this.turnoText.setText(`Turno: ${this.turnoActual}`)
+          this.lanzarBtn.setInteractive({ useHandCursor: true })
+        }
+      }
+
+      if (data.accion === 'pasar_turno') {
+        this.turnoActual = data.turno
+        this.estadoTurno = 'esperando_lanzamiento'
+        this.turnoText.setText(`Turno: ${this.turnoActual}`)
+        this.lanzarBtn.setInteractive({ useHandCursor: true })
+      }
+    }
+  }
+
+  drawMoveMarkers(fichaId, casillaActual) {
+    this.clearMoveMarkers()
+    this.valoresDisponibles.forEach(valor => {
+      const destinoId = (casillaActual + valor) % 68
+      const destino = casillas.find(c => c.id === destinoId)
+      if (destino) {
+        const marker = this.add.rectangle(destino.x, destino.y, 12, 12, 0x000000).setInteractive()
+        marker.setData('fichaId', fichaId)
+        marker.setData('valor', valor)
+        marker.on('pointerdown', () => {
+          const jugador = this.turnoActual
+          const valor = marker.getData('valor')
+
+          if (!this.valoresDisponibles.includes(valor)) {
+            console.log(`[UI] Valor ${valor} ya fue usado. Movimiento ignorado.`)
+            return
+          }
+
+          this.valoresDisponibles = this.valoresDisponibles.filter(v => v !== valor)
+          console.log(`[UI] Usando valor ${valor}, quedan: ${this.valoresDisponibles.join(', ')}`)
+
+          this.socket.send(JSON.stringify({ accion: 'mover', jugador, fichaId, valor }))
+          this.clearMoveMarkers()
+
+          const btnUsado = this.botonesDados.find(b => b.getData('valor') === valor)
+          if (btnUsado) {
+            btnUsado.setStyle({ backgroundColor: '#999' })
+            btnUsado.disableInteractive()
+          }
+
+          if (this.valoresDisponibles.length === 0) {
+            this.estadoTurno = 'esperando_lanzamiento'
+            this.lanzarBtn.setInteractive({ useHandCursor: true })
+          } else {
+            this.renderBotonesValores()
+          }
+
+          this.valorSeleccionado = null
+          this.fichaSeleccionada = null
+        })
+        this.moveMarkers.push(marker)
+      }
+    })
+  }
+
+  clearMoveMarkers() {
+    this.moveMarkers.forEach(marker => marker.destroy())
+    this.moveMarkers = []
+  }
+
+  updateValoresText(valores) {
+    this.valoresText.setText(`Valores disponibles: ${valores.join(', ')}`)
   }
 
   renderBotonesValores() {
     this.botonesDados.forEach(b => b.destroy())
     this.botonesDados = []
-
     const startX = 250
     const startY = 920
     const spacing = 80
-
     this.valoresDisponibles.forEach((valor, index) => {
       const btn = this.add.text(startX + index * spacing, startY, `${valor}`, {
         fontSize: '20px', backgroundColor: '#2196f3', color: '#fff', padding: { x: 10, y: 5 }
       }).setInteractive({ useHandCursor: true })
-
       btn.on('pointerdown', () => {
-        console.log(`[UI] Valor seleccionado: ${valor}`)
         this.valorSeleccionado = valor
         this.botonesDados.forEach(b => b.setStyle({ backgroundColor: '#2196f3' }))
         btn.setStyle({ backgroundColor: '#1565c0' })
       })
-
       btn.setData('valor', valor)
       this.botonesDados.push(btn)
     })
