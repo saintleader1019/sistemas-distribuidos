@@ -1,66 +1,99 @@
+# Bot actualizado para integrarse con el backend actual de Parques
+
 import asyncio
 import websockets
 import json
 import random
 
-BOT_NOMBRE = "BotParques"
+BOT_NOMBRE = "Santiago"
 SERVER_URL = "ws://localhost:8000/ws"
 
-fichas_bot = [{"posicion": -1, "activa": False} for _ in range(4)]
+fichas_bot = [{"posicion": -1, "id": i} for i in range(4)]
+mi_color = None
+valores_disponibles = []
+dado1 = dado2 = 0
 
 async def jugar():
+    global mi_color, valores_disponibles, dado1, dado2
     async with websockets.connect(SERVER_URL) as ws:
-        msg = await ws.recv()
-        data = json.loads(msg)
-        if data.get("tipo") == "solicitar_nombre":
-            await ws.send(json.dumps({"nombre": BOT_NOMBRE}))
+        await ws.send(json.dumps({"accion": "registro", "nombre": BOT_NOMBRE}))
 
         while True:
-            msg = await ws.recv()
-            data = json.loads(msg)
+            mensaje = await ws.recv()
+            data = json.loads(mensaje)
             print(f"<- {data}")
 
-            tipo = data.get("tipo")
+            accion = data.get("accion")
 
-            if tipo == "tu_turno":
+            if accion == "esperando_inicio":
+                mi_color = data["color"]
+
+            elif accion == "mostrar_boton_inicio":
                 await asyncio.sleep(1)
-                await ws.send(json.dumps({"tipo": "lanzar_dados"}))
+                await ws.send(json.dumps({"accion": "iniciar_partida"}))
 
-            elif tipo == "resultado_dados":
+            elif accion == "estado_inicial":
+                pass  # Se puede usar para reiniciar variables si es necesario
+
+            elif accion == "resultado_dados" and data.get("jugador") == mi_color:
                 dado1 = data.get("dado1")
                 dado2 = data.get("dado2")
-                suma = dado1 + dado2
-                par = data.get("par")
+                valores_disponibles = data.get("valores", [])
+
                 await asyncio.sleep(1)
-
-                if par:
-                    for i, f in enumerate(fichas_bot):
-                        if f["posicion"] == -1:
-                            await ws.send(json.dumps({"tipo": "sacar_ficha", "indice_ficha": i}))
-                            await asyncio.sleep(0.5)
-
+                # Intentar mover una ficha desde la cárcel con dobles
+                if dado1 == dado2:
+                    for ficha in fichas_bot:
+                        if ficha["posicion"] < 0:
+                            await ws.send(json.dumps({
+                                "accion": "mover",
+                                "jugador": mi_color,
+                                "fichaId": ficha["id"],
+                                "valor": dado1 + dado2
+                            }))
+                            break
                 else:
-                    for i, f in enumerate(fichas_bot):
-                        if f["posicion"] != -1 and f["posicion"] < 100:
-                            await ws.send(json.dumps({"tipo": "mover_ficha", "indice_ficha": i, "cantidad": suma}))
-                            await asyncio.sleep(0.5)
+                    # Intentar mover una ficha que ya esté en el camino
+                    for ficha in fichas_bot:
+                        if ficha["posicion"] in range(0, 68):
+                            await ws.send(json.dumps({
+                                "accion": "mover",
+                                "jugador": mi_color,
+                                "fichaId": ficha["id"],
+                                "valor": valores_disponibles[-1]  # intenta mover la suma si está
+                            }))
+                            break
 
-            elif tipo == "ficha_sacada":
-                idx = data.get("indice")
-                fichas_bot[idx] = {"posicion": data.get("posicion"), "activa": True}
+            elif accion == "mover":
+                if data["jugador"] == mi_color:
+                    idx = data["fichaId"]
+                    nueva = data["nuevaCasillaId"]
+                    for ficha in fichas_bot:
+                        if ficha["id"] == idx:
+                            ficha["posicion"] = nueva
+                            break
+                    valores_disponibles = data.get("restantes", [])
 
-            elif tipo == "ficha_movida":
-                idx = data.get("indice")
-                pos = data.get("nueva_posicion")
-                fichas_bot[idx]["posicion"] = pos
+                    await asyncio.sleep(1)
+                    if valores_disponibles:
+                        for ficha in fichas_bot:
+                            if ficha["posicion"] in range(0, 68):
+                                await ws.send(json.dumps({
+                                    "accion": "mover",
+                                    "jugador": mi_color,
+                                    "fichaId": ficha["id"],
+                                    "valor": valores_disponibles[-1]
+                                }))
+                                break
 
-            elif tipo == "ficha_llegada":
-                idx = data.get("indice")
-                fichas_bot[idx] = {"posicion": 100, "activa": False}
+            elif accion == "rechazado" and data.get("reintentar"):
+                await asyncio.sleep(1)
+                await ws.send(json.dumps({"accion": "lanzar_dados", "jugador": mi_color}))
 
-            elif tipo == "ficha_enviada_carcel":
-                idx = data.get("indice")
-                fichas_bot[idx] = {"posicion": -1, "activa": False}
+            elif accion == "pasar_turno":
+                if data.get("turno") == mi_color:
+                    await asyncio.sleep(1)
+                    await ws.send(json.dumps({"accion": "lanzar_dados", "jugador": mi_color}))
 
 if __name__ == "__main__":
     asyncio.run(jugar())

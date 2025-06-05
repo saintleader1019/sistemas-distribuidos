@@ -1,4 +1,4 @@
-// Código actualizado para frontend con limpieza de marcadores y botones según valores usados
+// Código actualizado con soporte para nombre de jugador, botón de inicio y sincronización con backend
 import { casillas } from './casillas.js'
 
 export default class GameScene extends Phaser.Scene {
@@ -6,7 +6,9 @@ export default class GameScene extends Phaser.Scene {
     super('GameScene')
     this.moveMarkers = []
     this.fichaSeleccionada = null
-    }
+    this.dado1 = 0
+    this.dado2 = 0
+  }
 
   preload() {
     console.log('[Phaser] Preload assets')
@@ -17,7 +19,9 @@ export default class GameScene extends Phaser.Scene {
   }
 
   create() {
-    console.log('[Phaser] Create scene')
+    const nombreJugador = prompt("Ingresa tu nombre para unirte a la partida:") || 'Jugador'
+    this.nombreJugador = nombreJugador
+
     const scale = 1
     const tablero = this.add.image(this.cameras.main.centerX, this.cameras.main.centerY, 'tablero')
     tablero.setOrigin(0.5, 0.5)
@@ -33,15 +37,13 @@ export default class GameScene extends Phaser.Scene {
     }
 
     this.turnoActual = null
+    this.nombreTurno = ''
     this.estadoTurno = 'esperando_lanzamiento'
     this.valoresDisponibles = []
     this.valorSeleccionado = null
+    this.miColor = null
 
     this.turnoText = this.add.text(20, 20, '', {
-      fontSize: '18px', fontStyle: 'bold', color: '#000'
-    })
-
-        this.dadoText = this.add.text(400, 850, '', {
       fontSize: '18px', fontStyle: 'bold', color: '#000'
     })
 
@@ -55,83 +57,60 @@ export default class GameScene extends Phaser.Scene {
     }).setInteractive({ useHandCursor: true })
 
     this.lanzarBtn.on('pointerdown', () => {
+      console.log('[UI] Botón lanzar presionado')
       if (this.estadoTurno !== 'esperando_lanzamiento') return
       this.lanzarBtn.disableInteractive()
-      const jugador = this.turnoActual
-      console.log(`[ENVÍO] Lanzar dados para: ${jugador}`)
+      const jugador = this.miColor
       this.socket.send(JSON.stringify({ accion: 'lanzar_dados', jugador }))
     })
 
     this.socket = new WebSocket('ws://localhost:8000/ws')
 
+    this.socket.onopen = () => {
+      this.socket.send(JSON.stringify({ accion: 'registro', nombre: nombreJugador }))
+    }
+
     this.fichas = []
-    colores.forEach(color => {
-      const carceles = casillas.filter(c => c.tipo === 'carcel' && c.color === color)
-      carceles.forEach((casilla, index) => {
-        const fichaContainer = this.add.container(casilla.x, casilla.y)
-        const circulo = this.add.circle(0, 0, 15, colorMap[color])
-        circulo.setStrokeStyle(2, 0x000000)
-        const inicial = this.add.text(-6, -8, color.charAt(0).toUpperCase(), {
-          fontSize: '16px', fontStyle: 'bold', color: '#000'
-        })
-        fichaContainer.add([circulo, inicial])
-        fichaContainer.setData('jugador', color)
-        fichaContainer.setData('fichaId', index)
-        fichaContainer.setData('casillaId', casilla.id)
-
-        circulo.setInteractive({ useHandCursor: true })
-        circulo.on('pointerdown', () => {
-          if (color !== this.turnoActual || this.estadoTurno !== 'esperando_movimiento') return
-
-          const fichaId = fichaContainer.getData('fichaId')
-          const casillaId = fichaContainer.getData('casillaId')
-
-          const estaEnCarcel = casillas.find(c => c.id === casillaId)?.tipo === 'carcel'
-          if (estaEnCarcel) {
-            console.log(`[UI] Ficha ${fichaId} en cárcel, intento de movimiento automático.`)
-            this.socket.send(JSON.stringify({
-              accion: 'mover', jugador: color, fichaId, valor: this.valoresDisponibles[2]
-            }))
-            return
-          }
-
-          this.fichaSeleccionada = fichaContainer
-          console.log(`[UI] Ficha seleccionada: ${fichaId} en casilla ${casillaId}`)
-          this.drawMoveMarkers(fichaId, casillaId)
-        })
-
-        this.fichas.push(fichaContainer)
-      })
-    })
-
     this.socket.onmessage = (event) => {
       const data = JSON.parse(event.data)
       console.log('[RECEPCIÓN]', data)
 
+      if (data.accion === 'esperando_inicio') {
+        this.miColor = data.color
+      }
+
+      if (data.accion === 'mostrar_boton_inicio') {
+        const btnInicio = this.add.text(300, 400, 'Iniciar Partida', {
+          fontSize: '24px', backgroundColor: '#1976d2', color: '#fff', padding: { x: 20, y: 10 }
+        }).setInteractive({ useHandCursor: true })
+
+        btnInicio.on('pointerdown', () => {
+          this.socket.send(JSON.stringify({ accion: 'iniciar_partida' }))
+          btnInicio.destroy()
+        })
+      }
+
       if (data.accion === 'estado_inicial') {
         this.turnoActual = data.turno
-        this.turnoText.setText(`Turno: ${this.turnoActual}`)
+        this.nombreTurno = data.nombre_turno
+        this.turnoText.setText(`Turno de: ${this.nombreTurno}`)
+        this.spawnFichas(colores, colorMap)
       }
 
       if (data.accion === 'resultado_dados') {
         const { dado1, dado2, valores } = data
+        this.dado1 = dado1
+        this.dado2 = dado2
         this.dadoSprite1.setTexture(`dado${dado1}`)
         this.dadoSprite2.setTexture(`dado${dado2}`)
-        this.dadoText.setText(`Dados: ${dado1} + ${dado2}`)
         this.estadoTurno = 'esperando_movimiento'
         this.valoresDisponibles = valores
-                console.log(`[UI] Valores disponibles actualizados: ${valores.join(', ')}`)
+        console.log(`[UI] Valores disponibles actualizados: ${valores.join(', ')}`)
         this.renderBotonesValores()
         console.log(`[UI] Botones renderizados para: ${this.valoresDisponibles.join(', ')}`)
-        console.log(`[UI] Valores restantes tras movimiento: ${this.valoresDisponibles.join(', ')}`)
       }
 
       if (data.accion === 'rechazado') {
-        this.alertaTexto?.destroy()
-        this.alertaTexto = this.add.text(20, 90, `🚫 ${data.motivo}`, {
-          fontSize: '16px', color: '#ff0000', backgroundColor: '#fff', padding: { left: 10, right: 10, top: 5, bottom: 5 }
-        })
-        this.time.delayedCall(3000, () => this.alertaTexto?.destroy())
         if (data.reintentar) {
           this.estadoTurno = 'esperando_lanzamiento'
           this.lanzarBtn.setInteractive({ useHandCursor: true })
@@ -154,18 +133,61 @@ export default class GameScene extends Phaser.Scene {
         if (this.valoresDisponibles.length === 0) {
           this.estadoTurno = 'esperando_lanzamiento'
           this.turnoActual = data.turno
-          this.turnoText.setText(`Turno: ${this.turnoActual}`)
+          this.nombreTurno = data.nombre_turno
+          this.turnoText.setText(`Turno de: ${this.nombreTurno}`)
           this.lanzarBtn.setInteractive({ useHandCursor: true })
         }
       }
 
       if (data.accion === 'pasar_turno') {
         this.turnoActual = data.turno
+        this.nombreTurno = data.nombre_turno
         this.estadoTurno = 'esperando_lanzamiento'
-        this.turnoText.setText(`Turno: ${this.turnoActual}`)
+        this.turnoText.setText(`Turno de: ${this.nombreTurno}`)
         this.lanzarBtn.setInteractive({ useHandCursor: true })
       }
     }
+  }
+
+  spawnFichas(colores, colorMap) {
+    colores.forEach(color => {
+      const carceles = casillas.filter(c => c.tipo === 'carcel' && c.color === color)
+      carceles.forEach((casilla, index) => {
+        const fichaContainer = this.add.container(casilla.x, casilla.y)
+        const circulo = this.add.circle(0, 0, 15, colorMap[color])
+        circulo.setStrokeStyle(2, 0x000000)
+        const inicial = this.add.text(-6, -8, color.charAt(0).toUpperCase(), {
+          fontSize: '16px', fontStyle: 'bold', color: '#000'
+        })
+        fichaContainer.add([circulo, inicial])
+        fichaContainer.setData('jugador', color)
+        fichaContainer.setData('fichaId', index)
+        fichaContainer.setData('casillaId', casilla.id)
+
+        circulo.setInteractive({ useHandCursor: true })
+        circulo.on('pointerdown', () => {
+          if (color !== this.miColor || this.estadoTurno !== 'esperando_movimiento') return
+
+          const fichaId = fichaContainer.getData('fichaId')
+          const casillaId = fichaContainer.getData('casillaId')
+          const estaEnCarcel = casillas.find(c => c.id === casillaId)?.tipo === 'carcel'
+          if (estaEnCarcel) {
+            const suma = this.dado1 + this.dado2
+            if (!isNaN(suma)) {
+              this.socket.send(JSON.stringify({
+                accion: 'mover', jugador: color, fichaId, valor: suma
+              }))
+            }
+            return
+          }
+
+          this.fichaSeleccionada = fichaContainer
+          this.drawMoveMarkers(fichaId, casillaId)
+        })
+
+        this.fichas.push(fichaContainer)
+      })
+    })
   }
 
   drawMoveMarkers(fichaId, casillaActual) {
@@ -178,16 +200,10 @@ export default class GameScene extends Phaser.Scene {
         marker.setData('fichaId', fichaId)
         marker.setData('valor', valor)
         marker.on('pointerdown', () => {
-          const jugador = this.turnoActual
+          const jugador = this.miColor
           const valor = marker.getData('valor')
 
-          if (!this.valoresDisponibles.includes(valor)) {
-            console.log(`[UI] Valor ${valor} ya fue usado. Movimiento ignorado.`)
-            return
-          }
-
-          this.valoresDisponibles = this.valoresDisponibles.filter(v => v !== valor)
-          console.log(`[UI] Usando valor ${valor}, quedan: ${this.valoresDisponibles.join(', ')}`)
+          if (!this.valoresDisponibles.includes(valor)) return
 
           this.socket.send(JSON.stringify({ accion: 'mover', jugador, fichaId, valor }))
           this.clearMoveMarkers()
@@ -204,9 +220,6 @@ export default class GameScene extends Phaser.Scene {
           } else {
             this.renderBotonesValores()
           }
-
-          this.valorSeleccionado = null
-          this.fichaSeleccionada = null
         })
         this.moveMarkers.push(marker)
       }

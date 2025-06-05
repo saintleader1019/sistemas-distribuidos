@@ -123,7 +123,8 @@ async def websocket_endpoint(websocket: WebSocket):
 
             elif accion == "mover":
                 ficha_id = data.get("fichaId")
-                valor = data.get("valor")
+                valor = int(data.get("valor"))
+
                 if jugador != juego["turno"] or juego["estado_turno"] != "esperando_movimiento":
                     await websocket.send_json({"accion": "rechazado", "motivo": "No puedes mover ahora"})
                     continue
@@ -149,12 +150,13 @@ async def websocket_endpoint(websocket: WebSocket):
                 else:
                     ficha["pos"] = (ficha["pos"] + valor) % 68
 
+                # Eliminación correcta del valor usado
                 if valor == suma:
                     juego["valores_disponibles"][jugador] = []
                 elif valor == dado1:
-                    juego["valores_disponibles"][jugador] = [v for v in juego["valores_disponibles"][jugador] if v != dado2 and v != suma]
-                elif valor == dado2:
                     juego["valores_disponibles"][jugador] = [v for v in juego["valores_disponibles"][jugador] if v != dado1 and v != suma]
+                elif valor == dado2:
+                    juego["valores_disponibles"][jugador] = [v for v in juego["valores_disponibles"][jugador] if v != dado2 and v != suma]
 
                 print(f"[MOVER] {jugador} movió ficha {ficha_id} a casilla {ficha['pos']} con valor {valor}")
                 print(f"[MOVIMIENTO] Valores restantes para {jugador}: {juego['valores_disponibles'][jugador]}")
@@ -169,7 +171,8 @@ async def websocket_endpoint(websocket: WebSocket):
                         "fichaId": ficha_id,
                         "nuevaCasillaId": ficha["pos"],
                         "turno": juego["turno"],
-                        "restantes": juego["valores_disponibles"][jugador]
+                        "restantes": juego["valores_disponibles"][jugador],
+                        "nombre_turno": juego["nombre_turno"]
                     })
 
     except WebSocketDisconnect:
