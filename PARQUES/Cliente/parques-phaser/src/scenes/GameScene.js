@@ -124,7 +124,6 @@ export default class GameScene extends Phaser.Scene {
                 console.log(`[UI] Valores disponibles actualizados: ${valores.join(', ')}`)
         this.renderBotonesValores()
         console.log(`[UI] Botones renderizados para: ${this.valoresDisponibles.join(', ')}`)
-        this.updateValoresText(this.valoresDisponibles)
         console.log(`[UI] Valores restantes tras movimiento: ${this.valoresDisponibles.join(', ')}`)
       }
 
@@ -219,10 +218,6 @@ export default class GameScene extends Phaser.Scene {
   clearMoveMarkers() {
     this.moveMarkers.forEach(marker => marker.destroy())
     this.moveMarkers = []
-  }
-
-  updateValoresText(valores) {
-    this.valoresText.setText(`Valores disponibles: ${valores.join(', ')}`)
   }
 
   renderBotonesValores() {
