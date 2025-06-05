@@ -55,7 +55,6 @@ export default class GameScene extends Phaser.Scene {
     }).setInteractive({ useHandCursor: true })
 
     this.lanzarBtn.on('pointerdown', () => {
-      console.log('[UI] Botón lanzar presionado')
       if (this.estadoTurno !== 'esperando_lanzamiento') return
       this.lanzarBtn.disableInteractive()
       const jugador = this.turnoActual
@@ -149,7 +148,6 @@ export default class GameScene extends Phaser.Scene {
 
         this.valoresDisponibles = data.restantes || []
         console.log(`[UI] Valores disponibles actualizados: ${this.valoresDisponibles.join(', ')}`)
-        this.clearMoveMarkers()
         this.clearMoveMarkers()
         this.renderBotonesValores()
 
