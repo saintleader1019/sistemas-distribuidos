@@ -43,7 +43,7 @@ export default class GameScene extends Phaser.Scene {
     this.valorSeleccionado = null
     this.miColor = null
 
-    this.turnoText = this.add.text(20, 20, '', {
+    this.turnoText = this.add.text(200, 100, '', {
       fontSize: '18px', fontStyle: 'bold', color: '#000'
     })
 
@@ -64,7 +64,9 @@ export default class GameScene extends Phaser.Scene {
       this.socket.send(JSON.stringify({ accion: 'lanzar_dados', jugador }))
     })
 
-    this.socket = new WebSocket('ws://localhost:8000/ws')
+    const host = location.hostname === "localhost" ? "192.168.229.128" : location.hostname;
+    this.socket = new WebSocket(`ws://${host}:8000/ws`);
+
 
     this.socket.onopen = () => {
       this.socket.send(JSON.stringify({ accion: 'registro', nombre: nombreJugador }))
